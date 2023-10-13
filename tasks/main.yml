@@ -1,0 +1,180 @@
+---
+- name: Download and install fzf
+  block:
+    # note: the paths should be in reverse order of precedence. If you'd like
+    # /usr/local/bin to take precedence over /usr/bin, then it should be
+    # listed second.
+    
+    - name: Check if fzf exists in specified paths
+      stat:
+        path: "{{ item }}"
+      register: fzf_stat_result
+      loop:
+        - /usr/bin/fzf
+        - /usr/local/bin/fzf
+
+    - name: Set fzf_binary_path if fzf exists
+      set_fact:
+        fzf_binary_path: "{{ item.stat.path }}"
+      when: item.stat.exists
+      loop: "{{ fzf_stat_result.results }}"
+      no_log: true  # This prevents the path from being printed multiple times
+    - name: Get currently installed fzf version
+      command: "{{ fzf_binary_path }} --version"
+      register: fzf_version_result
+      changed_when: false
+      when: fzf_binary_path is defined
+
+    - name: Display fzf_binary_path
+      debug:
+        var: fzf_binary_path
+      when: fzf_binary_path is defined
+
+    - name: Display fzf_version_result
+      debug:
+        msg: "fzf_version_result: {{ fzf_version_result.stdout }} min: {{ fzf_minimum_version }} older: {{ fzf_version_result.stdout is version(fzf_minimum_version, '<') }}"
+      
+    - name: Install fzf binary from GitHub
+      block:
+        # Determine system's architecture
+        - name: Get the architecture
+          command: uname -m
+          register: system_arch
+          changed_when: false
+    
+        - name: Fetch the latest release of fzf from GitHub
+          uri:
+            url: https://api.github.com/repos/junegunn/fzf/releases/latest
+            return_content: yes
+            headers:
+              Accept: "application/vnd.github.v3+json"
+          register: fzf_release_response
+        
+        - name: Extract the tag_name from the response
+          set_fact:
+            fzf_version: "{{ fzf_release_response.json.tag_name }}"
+    
+        # Map the architecture to the corresponding filename
+        - name: Set fzf binary URL based on architecture
+          set_fact:
+            fzf_binary_name: "fzf-{{ fzf_version }}-linux_{{ arch_map[system_arch.stdout] }}.tar.gz"
+            fzf_binary_url: "https://github.com/junegunn/fzf/releases/download/{{ fzf_version }}/fzf-{{ fzf_version }}-linux_{{ arch_map[system_arch.stdout] }}.tar.gz"
+    
+        # Download the appropriate binary
+        - name: Download fzf binary for the detected architecture
+          get_url:
+            url: "{{ fzf_binary_url }}"
+            dest: "/tmp/fzf.tar.gz"
+            mode: '0755'
+    
+        # Extract and move the fzf binary to /usr/local/bin
+        - name: Extract fzf binary
+          unarchive:
+            src: "/tmp/fzf.tar.gz"
+            dest: "/tmp"
+            remote_src: yes
+    
+        - name: Move fzf binary to /usr/local/bin
+          command: mv /tmp/fzf /usr/local/bin/fzf
+          become: yes
+      when: 
+        - (fzf_binary_path is not defined) or (fzf_binary_path is defined and fzf_version_result.stdout is version(fzf_minimum_version, '<'))
+
+    
+
+    
+  #   - name: Get dpkg architecture
+  #     command: dpkg --print-architecture
+  #     register: dpkg_arch_result
+
+  #   - name: Set dpkg architecture to a variable
+  #     set_fact:
+  #       deb_architecture: "{{ dpkg_arch_result.stdout }}"
+        
+  #   - name: Install necessary tools
+  #     apt:
+  #       name:
+  #         - git
+  #         - devscripts
+  #         - debhelper
+  #         - fakeroot
+  #         - debmake
+  #         - dh-golang
+  #         - golang
+  #       state: present
+  #     become: true
+
+  #   - name: Fetch the latest release of fzf from GitHub
+  #     uri:
+  #       url: https://api.github.com/repos/junegunn/fzf/releases/latest
+  #       return_content: yes
+  #       headers:
+  #         Accept: "application/vnd.github.v3+json"
+  #     register: fzf_release_response
+    
+  #   - name: Extract the tag_name from the response
+  #     set_fact:
+  #       fzf_version: "{{ fzf_release_response.json.tag_name }}"
+
+
+  #   - name: Download fzf source tarball
+  #     get_url:
+  #       url: "https://github.com/junegunn/fzf/archive/refs/tags/{{ fzf_version }}.tar.gz"
+  #       dest: "/tmp/fzf_{{ fzf_version }}.orig.tar.gz"
+  #       force: yes
+
+  #   - name: Unpack the tarball
+  #     unarchive:
+  #       src: "/tmp/fzf_{{ fzf_version }}.orig.tar.gz"
+  #       dest: "/tmp/"
+  #       remote_src: yes
+
+  #   # - name: Clone the latest release of fzf
+  #   #   git:
+  #   #     repo: 'https://github.com/junegunn/fzf.git'
+  #   #     dest: '/tmp/fzf'
+  #   #     version: 'tags/{{ fzf_version }}'
+  #   #   register: git_result
+
+  #   - name: Create debian directory
+  #     file:
+  #       path: "/tmp/fzf-{{ fzf_version }}/debian"
+  #       state: directory
+
+  #   - name: Copy debian files to source directory
+  #     copy:
+  #       src: "files/debian/{{ item }}"
+  #       dest: "/tmp/fzf-{{ fzf_version }}/debian/{{ item }}"
+  #     loop:
+  #       - control
+  #       - rules
+  #       - compat
+
+  #   - name: Register the current_date_full for changelog
+  #     command: date '+%a, %d %b %Y %T +0000'
+  #     register: current_date_full
+  #     changed_when: false
+
+  #   - name: Register the current_date for changelog
+  #     set_fact:
+  #       current_date: "{{ current_date_full.stdout }}"
+      
+  #   - name: Generate Debian changelog with dynamic version
+  #     template:
+  #       src: "templates/debian/changelog.j2"
+  #       dest: "/tmp/fzf-{{ fzf_version }}/debian/changelog"
+        
+  #   - name: Build the .deb package
+  #     command:
+  #       cmd: "debuild -us -uc"
+  #       chdir: "/tmp/fzf-{{ fzf_version}}"
+  #     environment:
+  #       DEB_BUILD_OPTIONS: "nocheck"  # This is to avoid running tests; remove if not needed
+
+  #   - name: Install the .deb package
+  #     apt:
+  #       deb: "/tmp/fzf_{{ fzf_version }}-1_{{ deb_architecture }}.deb"
+  #       state: present
+  #     become: true
+      
+  # when: ansible_os_family|lower == 'debian'
