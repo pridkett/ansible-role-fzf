@@ -19,6 +19,7 @@
       when: item.stat.exists
       loop: "{{ fzf_stat_result.results }}"
       no_log: true  # This prevents the path from being printed multiple times
+
     - name: Get currently installed fzf version
       command: "{{ fzf_binary_path }} --version"
       register: fzf_version_result
@@ -33,6 +34,7 @@
     - name: Display fzf_version_result
       debug:
         msg: "fzf_version_result: {{ fzf_version_result.stdout }} min: {{ fzf_minimum_version }} older: {{ fzf_version_result.stdout is version(fzf_minimum_version, '<') }}"
+      when: fzf_binary_path is defined
       
     - name: Install fzf binary from GitHub
       block:
